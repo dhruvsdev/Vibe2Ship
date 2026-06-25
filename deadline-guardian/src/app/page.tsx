@@ -241,29 +241,18 @@ function DashboardContent() {
     setReminders((prev) => prev.filter((r) => r.taskId !== taskId));
   };
 
-  // Upgraded toggle completion handler supporting strict added-today unchecking
+  // Upgraded dynamic toggle completetion handler supporting today-only unchecking
   const handleToggleCompleteTask = async (taskId: string) => {
     const targetTask = tasks.find((t) => t.id === taskId);
     if (!targetTask) return;
 
     const isCurrentlyCompleted = targetTask.status === "Completed";
     
-    // Safety restriction: limit Completed-tab unchecking strictly to tasks added today
+    // Safety restriction: limit Completed-tab unchecking strictly to today's deadlines
     if (isCurrentlyCompleted && activeFilter === "completed") {
       const localToday = getLocalTodayString();
-      
-      let isAddedToday = false;
-      if (targetTask.createdAt && typeof targetTask.createdAt === "object") {
-        const seconds = (targetTask.createdAt as any).seconds;
-        if (seconds) {
-          const createdDate = new Date(seconds * 1000);
-          const createdDateStr = createdDate.toLocaleDateString("en-CA");
-          isAddedToday = createdDateStr === localToday;
-        }
-      }
-
-      if (!isAddedToday) {
-        alert("Only tasks added today can be unchecked back to the active dashboard.");
+      if (targetTask.deadline !== localToday) {
+        alert("Only tasks completed today can be unchecked back to the active dashboard.");
         return;
       }
     }
@@ -789,7 +778,7 @@ function DashboardContent() {
                   <AlertTriangle className="text-amber-800 dark:text-amber-450 shrink-0 mt-0.5" size={20} />
                   <div>
                     <h4 className="text-sm font-bold text-amber-900 dark:text-amber-300">Task Backlog Overload Detected</h4>
-                    <p className="text-xs text-amber-700 dark:text-amber-450 mt-1 leading-relaxed">{plannerResult.overloadAlert.details}</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 leading-relaxed">{plannerResult.overloadAlert.details}</p>
                   </div>
                 </div>
               )}
