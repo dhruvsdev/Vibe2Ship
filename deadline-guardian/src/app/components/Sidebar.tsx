@@ -9,22 +9,26 @@ import {
   Clock, 
   LogIn, 
   LogOut,
-  Loader2 
+  Loader2,
+  Sun,
+  Moon
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
 import { useState } from "react";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
-  { icon: Clock, label: "Urgent", href: "#" },
-  { icon: Calendar, label: "Calendar", href: "#" },
-  { icon: CheckCircle2, label: "Completed", href: "#" },
-  { icon: Settings, label: "Settings", href: "#" },
+  { icon: Clock, label: "Urgent", href: "/?filter=urgent" },
+  { icon: Calendar, label: "Calendar", href: "/?filter=calendar" },
+  { icon: CheckCircle2, label: "Completed", href: "/?filter=completed" },
+  { icon: Settings, label: "Settings", href: "/?filter=settings" },
 ];
 
 export default function Sidebar() {
   const { user, signInWithGoogle, logOut } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
   const handleSignIn = async () => {
@@ -40,12 +44,23 @@ export default function Sidebar() {
 
   return (
     <div className="h-full bg-slate-900 text-white p-6 flex flex-col border-r border-slate-800">
-      {/* Brand Logo */}
-      <div className="flex items-center gap-3 mb-10 px-2">
-        <div className="bg-indigo-600 p-1.5 rounded-lg">
-          <ShieldAlert className="text-white w-6 h-6" />
+      {/* Rebranded Logo */}
+      <div className="flex items-center justify-between mb-10 px-2">
+        <div className="flex items-center gap-3">
+          <div className="bg-indigo-600 p-1.5 rounded-lg">
+            <ShieldAlert className="text-white w-6 h-6" />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight">NeverLate</h1>
         </div>
-        <h1 className="text-xl font-bold tracking-tight">Guardian</h1>
+
+        {/* Theme Toggle Button */}
+        <button 
+          onClick={toggleTheme}
+          className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
+          title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+        >
+          {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+        </button>
       </div>
 
       {/* Main Navigation */}
@@ -66,7 +81,6 @@ export default function Sidebar() {
       <div className="mt-auto pt-6 border-t border-slate-800 space-y-4">
         {user ? (
           <>
-            {/* Pro Plan Indicator */}
             <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700/50">
               <div className="flex justify-between items-center mb-2">
                 <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Current Plan</p>
@@ -81,7 +95,6 @@ export default function Sidebar() {
               </div>
             </div>
 
-            {/* User Profile Info */}
             <div className="flex items-center justify-between px-2">
               <div className="flex items-center gap-3 overflow-hidden">
                 {user.photoURL ? (
@@ -102,7 +115,6 @@ export default function Sidebar() {
               </div>
             </div>
 
-            {/* Sign Out Button */}
             <button 
               onClick={() => logOut()}
               className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-red-500/10 text-red-400 hover:text-red-300 transition-colors text-sm font-medium"
@@ -112,7 +124,6 @@ export default function Sidebar() {
             </button>
           </>
         ) : (
-          /* Sign In Button */
           <button 
             disabled={isAuthLoading}
             onClick={handleSignIn}

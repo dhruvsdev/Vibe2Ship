@@ -1,47 +1,102 @@
 "use server"; // Tells Next.js to execute this file safely on the server side only
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Task, PrioritizationResponse, TaskBreakdownResponse, DailyScheduleResponse } from "../types/task";
+import OpenAI from "openai";
+import { 
+  Task, 
+  PrioritizationResponse, 
+  TaskBreakdownResponse, 
+  DailyScheduleResponse, 
+  AIReminder, 
+  AIAnalyticsInsights 
+} from "../types/task";
 
 const sleep = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-export const getGeminiResponse = async (prompt: string) => {
-  const apiKey = process.env.GEMINI_API_KEY;
+// You can swap this with any model from openrouter.ai/models
+// e.g., "google/gemini-2.5-flash", "deepseek/deepseek-chat", "meta-llama/llama-3.1-8b-instruct"
+const MODEL_NAME = "openai/gpt-4o-mini";
+
+// Initialize OpenAI client configured for OpenRouter
+const getOpenRouterClient = () => {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  
+  // Safe debugging logs
+  console.log("Checking environment variables...");
+  console.log("Is OPENROUTER_API_KEY defined?:", !!apiKey);
 
   if (!apiKey) {
-    throw new Error("API_KEY_MISSING");
+    throw new Error("OPENROUTER_API_KEY_MISSING");
   }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-lite",
+  return new OpenAI({
+    apiKey: apiKey,
+    baseURL: "https://openrouter.ai/api/v1",
+    defaultHeaders: {
+      "HTTP-Referer": "http://localhost:3000",
+      "X-Title": "Deadline Guardian",
+    }
   });
-
+};
+// Generic Text Response Helper
+export const getGeminiResponse = async (prompt: string) => {
+  const openai = getOpenRouterClient();
   const maxRetries = 3;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      return response.text();
+      const response = await openai.chat.completions.create({
+        model: MODEL_NAME,
+        messages: [{ role: "user", content: prompt }],
+      });
+      return response.choices[0].message.content || "";
     } catch (error: any) {
       console.error(`Attempt ${attempt} failed:`, error);
-
-      const is503 =
-        error?.message?.includes("503") ||
-        error?.message?.includes("high demand");
-
-      if (!is503 || attempt === maxRetries) {
-        throw error;
-      }
-
+      if (attempt === maxRetries) throw error;
       await sleep(2000 * attempt);
     }
   }
 
-  throw new Error("GEMINI_REQUEST_FAILED");
+  throw new Error("OPENROUTER_REQUEST_FAILED");
+};
+
+// Generic Helper to handle Structured JSON Outputs
+const getJSONResponse = async (prompt: string, schema: any, temperature = 0.2) => {
+  const openai = getOpenRouterClient();
+  const maxRetries = 3;
+
+  const promptWithSchema = `
+    ${prompt}
+
+    IMPORTANT: You must return a valid JSON object strictly matching this structural schema:
+    ${JSON.stringify(schema, null, 2)}
+  `;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await openai.chat.completions.create({
+        model: MODEL_NAME,
+        messages: [
+          { role: "system", content: "You are a helpful assistant designed to output strictly structured JSON data." },
+          { role: "user", content: promptWithSchema }
+        ],
+        response_format: { type: "json_object" },
+        temperature: temperature,
+      });
+
+      const text = response.choices[0].message.content;
+      if (!text) {
+        throw new Error("Empty response received");
+      }
+
+      return JSON.parse(text);
+    } catch (error: any) {
+      console.error(`Attempt ${attempt} failed:`, error);
+      if (attempt === maxRetries) throw error;
+      await sleep(2000 * attempt);
+    }
+  }
+
+  throw new Error("OPENROUTER_JSON_REQUEST_FAILED");
 };
 
 // --- PRIORITIZATION IMPLEMENTATION ---
@@ -51,7 +106,6 @@ const responseSchema = {
   properties: {
     rankedTasks: {
       type: "array",
-      description: "List of tasks prioritized by urgency and status. Place 'Completed' tasks at the end.",
       items: {
         type: "object",
         properties: {
@@ -64,7 +118,6 @@ const responseSchema = {
     },
     risks: {
       type: "array",
-      description: "Potential schedule or risk warnings detected.",
       items: {
         type: "object",
         properties: {
@@ -80,22 +133,6 @@ const responseSchema = {
 };
 
 export const prioritizeTasksWithAI = async (tasks: Task[]): Promise<PrioritizationResponse> => {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("API_KEY_MISSING");
-  }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-lite",
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: responseSchema as any,
-      temperature: 0.1,
-    }
-  });
-
   const currentDate = new Date().toISOString().split("T")[0];
   const prompt = `
     You are a project management assistant. Evaluate and prioritize the following list of tasks.
@@ -110,34 +147,7 @@ export const prioritizeTasksWithAI = async (tasks: Task[]): Promise<Prioritizati
     Tasks Data: ${JSON.stringify(tasks)}
   `;
 
-  const maxRetries = 3;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
-      
-      if (!responseText) {
-        throw new Error("Empty response received");
-      }
-
-      return JSON.parse(responseText) as PrioritizationResponse;
-    } catch (error: any) {
-      console.error(`Prioritization attempt ${attempt} failed:`, error);
-
-      const is503 =
-        error?.message?.includes("503") ||
-        error?.message?.includes("high demand");
-
-      if (!is503 || attempt === maxRetries) {
-        throw error;
-      }
-
-      await sleep(2000 * attempt);
-    }
-  }
-
-  throw new Error("PRIORITIZATION_REQUEST_FAILED");
+  return await getJSONResponse(prompt, responseSchema, 0.1) as PrioritizationResponse;
 };
 
 
@@ -148,7 +158,6 @@ const breakdownSchema = {
   properties: {
     milestones: {
       type: "array",
-      description: "Significant progress points or phases to complete the overall task.",
       items: {
         type: "object",
         properties: {
@@ -160,14 +169,13 @@ const breakdownSchema = {
     },
     subtasks: {
       type: "array",
-      description: "Individual actionable steps, organized in a logical chronological order of implementation.",
       items: {
         type: "object",
         properties: {
-          id: { type: "string", description: "Short unique identifier like sub-1, sub-2" },
+          id: { type: "string" },
           title: { type: "string" },
-          estimatedHours: { type: "number", description: "Estimated active effort required in hours." },
-          order: { type: "integer", description: "Sequential order of execution (starting at 1)" }
+          estimatedHours: { type: "number" },
+          order: { type: "integer" }
         },
         required: ["id", "title", "estimatedHours", "order"]
       }
@@ -180,22 +188,6 @@ export const breakdownTaskWithAI = async (
   title: string,
   description: string
 ): Promise<TaskBreakdownResponse> => {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("API_KEY_MISSING");
-  }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-lite",
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: breakdownSchema as any,
-      temperature: 0.2,
-    }
-  });
-
   const prompt = `
     You are an expert developer and workflow planner. Deconstruct the following task into milestones and individual actionable subtasks.
     
@@ -205,31 +197,7 @@ export const breakdownTaskWithAI = async (
     Determine a logical chronology for execution, estimate realistic effort in hours for each subtask, and establish significant high-level milestones.
   `;
 
-  const maxRetries = 3;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
-      
-      if (!responseText) {
-        throw new Error("Empty breakdown response");
-      }
-
-      return JSON.parse(responseText) as TaskBreakdownResponse;
-    } catch (error: any) {
-      console.error(`Breakdown attempt ${attempt} failed:`, error);
-
-      const is503 = error?.message?.includes("503") || error?.message?.includes("high demand");
-      if (!is503 || attempt === maxRetries) {
-        throw error;
-      }
-
-      await sleep(2000 * attempt);
-    }
-  }
-
-  throw new Error("TASK_BREAKDOWN_FAILED");
+  return await getJSONResponse(prompt, breakdownSchema, 0.2) as TaskBreakdownResponse;
 };
 
 
@@ -240,15 +208,14 @@ const scheduleSchema = {
   properties: {
     schedule: {
       type: "array",
-      description: "Chronological daily schedule blocks containing focus periods and regular breaks.",
       items: {
         type: "object",
         properties: {
-          timeSlot: { type: "string", description: "Format: HH:MM AM/PM - HH:MM AM/PM" },
-          taskTitle: { type: "string", description: "The specific task title, or label like 'Rest Break' / 'Lunch Break'." },
+          timeSlot: { type: "string" },
+          taskTitle: { type: "string" },
           type: { type: "string", enum: ["focus", "break", "administrative"] },
           durationMinutes: { type: "integer" },
-          recommendation: { type: "string", description: "Advice on how to approach this block (optional)." }
+          recommendation: { type: "string" }
         },
         required: ["timeSlot", "taskTitle", "type", "durationMinutes"]
       }
@@ -257,13 +224,12 @@ const scheduleSchema = {
       type: "object",
       properties: {
         isOverloaded: { type: "boolean" },
-        details: { type: "string", description: "A warning detail if the total high-priority task volume exceeds available hours." }
+        details: { type: "string" }
       },
       required: ["isOverloaded", "details"]
     },
     summary: {
-      type: "string",
-      description: "Brief summary explaining the plan layout and why it was structured this way."
+      type: "string"
     }
   },
   required: ["schedule", "overloadAlert", "summary"]
@@ -272,24 +238,8 @@ const scheduleSchema = {
 export const generateDailyScheduleWithAI = async (
   tasks: Task[],
   availableHours: number,
-  startTime: string // e.g., "14:30" or "09:00"
+  startTime: string
 ): Promise<DailyScheduleResponse> => {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("API_KEY_MISSING");
-  }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: scheduleSchema as any,
-      temperature: 0.2,
-    }
-  });
-
   const currentDate = new Date().toISOString().split("T")[0];
   const prompt = `
     You are a professional performance coach and daily planner. Construct a realistic, healthy daily work schedule.
@@ -302,34 +252,17 @@ export const generateDailyScheduleWithAI = async (
 
     Scheduling Guidelines:
     1. Organize tasks chronologically, starting the workday exactly at the specified start time: ${startTime}.
-    2. Convert this start time (usually 24h format like "14:30") to standard standard 12-hour AM/PM format (e.g. "02:30 PM") when generating schedule blocks.
+    2. Convert this start time (usually 24h format like "14:30") to standard 12-hour AM/PM format (e.g. "02:30 PM") when generating schedule blocks.
     3. Only plan tasks with statuses "To Do" or "In Progress". Skip "Completed" tasks.
     4. Allocate dedicated focused work blocks (ideally 60 to 120 minutes) for important/urgent tasks.
     5. Insert short rest/recharging breaks (10-30 minutes) between major work blocks.
     6. Flag an overload condition in "overloadAlert" if the active workload realistically cannot fit within the user's available working hours, explaining which tasks had to be deferred.
   `;
 
-  const maxRetries = 3;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
-
-      if (!responseText) {
-        throw new Error("Empty planner response");
-      }
-
-      return JSON.parse(responseText) as DailyScheduleResponse;
-    } catch (error: any) {
-      console.error(`Planner attempt ${attempt} failed:`, error);
-      const is503 = error?.message?.includes("503") || error?.message?.includes("high demand");
-      if (!is503 || attempt === maxRetries) throw error;
-      await sleep(2000 * attempt);
-    }
-  }
-
-  throw new Error("DAILY_PLANNER_FAILED");
+  return await getJSONResponse(prompt, scheduleSchema, 0.2) as DailyScheduleResponse;
 };
+
+
 // --- REMINDER ENGINE SCHEMA DEFINITION ---
 
 const reminderSchema = {
@@ -337,14 +270,13 @@ const reminderSchema = {
   properties: {
     reminders: {
       type: "array",
-      description: "List of highly targeted task notifications categorized by type and urgency.",
       items: {
         type: "object",
         properties: {
           taskId: { type: "string" },
-          title: { type: "string", description: "Catchy, direct, and clear header." },
-          message: { type: "string", description: "Direct motivational text, step-by-step guidance, or urgent warnings." },
-          urgencyScore: { type: "integer", description: "Score from 1 (lowest) to 10 (highest urgency)." },
+          title: { type: "string" },
+          message: { type: "string" },
+          urgencyScore: { type: "integer" },
           type: { type: "string", enum: ["motivational", "actionable", "warning"] }
         },
         required: ["taskId", "title", "message", "urgencyScore", "type"]
@@ -357,22 +289,6 @@ const reminderSchema = {
 export const generateRemindersWithAI = async (
   tasks: Task[]
 ): Promise<AIReminder[]> => {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("API_KEY_MISSING");
-  }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-lite",
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: reminderSchema as any,
-      temperature: 0.3,
-    }
-  });
-
   const currentDate = new Date().toISOString().split("T")[0];
   const prompt = `
     You are an proactive operational assistant. Generate highly specific, context-aware reminders for active tasks.
@@ -391,31 +307,99 @@ export const generateRemindersWithAI = async (
        - 'motivational': For tasks starting soon or lacking focus. Provide encouraging, supportive framing.
   `;
 
-  const maxRetries = 3;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
+  const parsed = await getJSONResponse(prompt, reminderSchema, 0.3);
+  return parsed.reminders as AIReminder[];
+};
 
-      if (!responseText) {
-        throw new Error("Empty reminder engine response");
-      }
 
-      const parsed = JSON.parse(responseText);
-      return parsed.reminders as AIReminder[];
-    } catch (error: any) {
-      console.error(`Reminder Engine attempt ${attempt} failed:`, error);
+// --- PRODUCTIVITY ANALYTICS SCHEMA DEFINITION ---
 
-      const isQuota = error?.message?.includes("429") || error?.message?.includes("quota");
-      if (isQuota) {
-        throw new Error("AI_LIMIT_EXCEEDED");
-      }
-
-      const is503 = error?.message?.includes("503") || error?.message?.includes("high demand");
-      if (!is503 || attempt === maxRetries) throw error;
-      await sleep(2000 * attempt);
+const insightsSchema = {
+  type: "object",
+  properties: {
+    productivityScore: { type: "integer" },
+    summary: { type: "string" },
+    strengths: {
+      type: "array",
+      items: { type: "string" }
+    },
+    improvementAreas: {
+      type: "array",
+      items: { type: "string" }
     }
+  },
+  required: ["productivityScore", "summary", "strengths", "improvementAreas"]
+};
+
+export const generateProductivityInsightsWithAI = async (
+  tasks: Task[]
+): Promise<AIAnalyticsInsights> => {
+  const currentDate = new Date().toISOString().split("T")[0];
+  const prompt = `
+    You are an expert executive operations coach. Analyze the user's task workspace metrics below.
+    
+    Inputs:
+    - Current Date: ${currentDate}
+    - User's Task List: ${JSON.stringify(tasks)}
+
+    Analysis Guidelines:
+    1. Assess completion rate (Completed vs To Do vs In Progress).
+    2. Review the distribution of priorities ('High', 'Medium', 'Low') across active vs completed tasks.
+    3. Evaluate deadline pressure: identify tasks that are overdue or nearing deadlines.
+    4. Provide constructive, professional strengths and actionable recommendations to help them plan more effectively.
+  `;
+
+  return await getJSONResponse(prompt, insightsSchema, 0.2) as AIAnalyticsInsights;
+};
+// --- AI CHAT COPILOT IMPLEMENTATION ---
+
+export const getAIChatResponse = async (
+  messages: { role: "user" | "assistant"; content: string }[],
+  tasks: Task[]
+): Promise<string> => {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENROUTER_API_KEY_MISSING");
   }
 
-  throw new Error("REMINDER_ENGINE_FAILED");
+  const openai = new OpenAI({
+    apiKey: apiKey,
+    baseURL: "https://openrouter.ai/api/v1",
+    defaultHeaders: {
+      "HTTP-Referer": "http://localhost:3000",
+      "X-Title": "Deadline Guardian",
+    }
+  });
+
+  const currentDate = new Date().toISOString().split("T")[0];
+  const activeTasks = tasks.filter(t => t.status !== "Completed");
+
+  const systemPrompt = `
+    You are Guardian AI, a professional operational coach and performance advisor.
+    You have direct access to the user's active tasks list and current calendar date.
+
+    Current Date: ${currentDate}
+    User's Active Tasks: ${JSON.stringify(activeTasks)}
+
+    Guidelines:
+    1. Always be highly specific, action-oriented, and refer to their actual task titles when answering questions like "What should I work on first?" or "Can I finish everything today?".
+    2. Keep your answers concise, practical, and under 3-4 sentences when possible to maintain readability in a chat drawer.
+    3. Do not make up tasks that don't exist. If they ask to break down a project, use their current tasks or guide them through creating subtasks.
+  `;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: MODEL_NAME, // uses "openai/gpt-4o-mini"
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...messages
+      ],
+      temperature: 0.3,
+    });
+
+    return response.choices[0].message.content || "I couldn't process that request.";
+  } catch (error: any) {
+    console.error("AI Chat completion failed:", error);
+    throw new Error("CHAT_FAILED");
+  }
 };

@@ -1,26 +1,17 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* Force Tailwind v4 to toggle dark mode only when the .dark class is on the html tag */
+@variant dark (.dark &);
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 300ms ease-in-out, color 300ms ease-in-out;
+}
+
+/* Foolproof override for the AI Breakdown button in dark mode */
+html.dark .ai-breakdown-btn {
+  background-color: #1e293b !important; /* slate-800 */
+  color: #94a3b8 !important;            /* slate-400 */
+}
+html.dark .ai-breakdown-btn:hover {
+  background-color: #0f172a/50 !important; /* slightly darker hover state */
 }

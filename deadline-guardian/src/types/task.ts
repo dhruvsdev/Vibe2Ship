@@ -68,3 +68,9 @@ export interface AIReminder {
   urgencyScore: number; // 1 to 10 scale
   type: "motivational" | "actionable" | "warning";
 }
+export interface AIAnalyticsInsights {
+  productivityScore: number; // AI estimated performance score (0-100)
+  summary: string;           // Overall velocity & performance summary
+  strengths: string[];       // Noted highlights / operational accomplishments
+  improvementAreas: string[]; // Targeted recommendations to optimize focus
+}
