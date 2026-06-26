@@ -1,43 +1,44 @@
+export const dynamic = "force-dynamic"; // Tells Next.js not to pre-render this route at build-time
+
 import { NextResponse } from "next/server";
-import { getUserTasks } from "@/lib/firestore";
-import { Task } from "@/types/task";
+import OpenAI from "openai";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const uid = searchParams.get("uid");
+export async function POST(request: Request) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
 
-  if (!uid) {
-    return NextResponse.json({ error: "Missing uid parameter" }, { status: 400 });
+  if (!apiKey) {
+    return NextResponse.json({ error: "API_KEY_MISSING" }, { status: 400 });
   }
 
   try {
-    const tasks = await getUserTasks(uid);
-    const localToday = new Date().toLocaleDateString("en-CA");
+    const { prompt } = await request.json();
 
-    // Filter tasks: incomplete High priority OR overdue/due today
-    const urgentTasks = tasks.filter((t) => {
-      if (t.status === "Completed") return false;
-      if (t.priority === "High") return true;
-      return t.deadline && t.deadline <= localToday;
-    });
+    if (!prompt) {
+      return NextResponse.json({ error: "Missing prompt parameter" }, { status: 400 });
+    }
 
-    // Return only basic details for widget efficiency
-    const formatted = urgentTasks.map((t) => ({
-      id: t.id,
-      title: t.title,
-      priority: t.priority,
-      deadline: t.deadline
-    }));
-
-    // Allow local widget fetching by enabling CORS
-    return NextResponse.json(formatted, {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET",
+    const openai = new OpenAI({
+      apiKey: apiKey,
+      baseURL: "https://openrouter.ai/api/v1",
+      defaultHeaders: {
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "NeverLate",
       }
     });
-  } catch (error) {
-    console.error("Widget API Error:", error);
-    return NextResponse.json({ error: "Failed to fetch tasks" }, { status: 500 });
+
+    const response = await openai.chat.completions.create({
+      model: "openai/gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You are a professional task assistant. Generate strictly the requested task description text only with no introduction." },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.5,
+    });
+
+    const generatedText = response.choices[0].message.content || "";
+    return NextResponse.json({ text: generatedText });
+  } catch (error: any) {
+    console.error("AI Assist API Error:", error);
+    return NextResponse.json({ error: "AI_GENERATION_FAILED", details: error.message }, { status: 500 });
   }
 }
