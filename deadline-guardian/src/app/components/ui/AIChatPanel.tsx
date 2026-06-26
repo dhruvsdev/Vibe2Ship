@@ -18,7 +18,6 @@ interface AIChatPanelProps {
 export default function AIChatPanel({ tasks }: AIChatPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  // Rebranded initial greeting
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", content: "Hello! I am NeverLate AI, your operational coach. I have full context of your task list. How can I help you organize your day?" }
   ]);
@@ -44,8 +43,8 @@ export default function AIChatPanel({ tasks }: AIChatPanelProps) {
     "Break down my portfolio project.",
   ];
 
-  // Strictly strip non-serializable fields (like Firestore Timestamps)
-  const sanitizeTasks = (taskList: Task[]) => {
+  // Strictly strip non-serializable fields (like Firestore Timestamps) while satisfying the Task interface
+  const sanitizeTasks = (taskList: Task[]): Task[] => {
     return taskList.map((t) => ({
       id: t.id || "",
       userId: t.userId || "",
@@ -54,6 +53,7 @@ export default function AIChatPanel({ tasks }: AIChatPanelProps) {
       priority: t.priority || "Medium",
       status: t.status || "To Do",
       deadline: t.deadline || "",
+      createdAt: null as any, // Safely satisfies the required TypeScript property
     }));
   };
 
@@ -83,7 +83,7 @@ export default function AIChatPanel({ tasks }: AIChatPanelProps) {
 
   return createPortal(
     <>
-      {/* Floating Action Button - Rebranded title */}
+      {/* Floating Action Button - Locked strictly to bottom-right of viewport */}
       <button
         onClick={() => setIsOpen(true)}
         style={{
@@ -127,7 +127,7 @@ export default function AIChatPanel({ tasks }: AIChatPanelProps) {
             }}
             className="w-80 sm:w-96 bg-white dark:bg-slate-900 border-l border-slate-100 dark:border-slate-800 shadow-2xl flex flex-col justify-between transition-all duration-300"
           >
-            {/* Header - Rebranded title */}
+            {/* Header */}
             <div className="flex justify-between items-center p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
               <div className="flex items-center gap-2">
                 <BrainCircuit className="text-indigo-600" size={18} />
@@ -158,7 +158,7 @@ export default function AIChatPanel({ tasks }: AIChatPanelProps) {
                 );
               })}
               
-              {/* Typing Loader Indicator - Rebranded text */}
+              {/* Typing Loader Indicator */}
               {loading && (
                 <div className="flex justify-start">
                   <div className="p-3 bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 rounded-2xl flex items-center gap-2 text-xs">
