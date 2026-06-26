@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { Task, Priority } from "@/types/task";
+// Added "Status" to the imports below
+import { Task, Priority, Status } from "@/types/task";
 import { Clock, Trash2, Edit3, Check } from "lucide-react";
 import { deleteTask, updateTask } from "@/lib/firestore";
 
@@ -49,7 +50,8 @@ export default function TaskCard({ task, onEdit, onRefresh, onComplete }: TaskCa
     setIsExiting(true);
     setTimeout(async () => {
       try {
-        const newStatus = isCompleted ? "Todo" : "Completed";
+        // Corrected "Todo" to "To Do" and explicitly typed as Status
+        const newStatus: Status = isCompleted ? "To Do" : "Completed";
         await updateTask(task.id!, { status: newStatus });
         onRefresh();
       } catch (error) {
@@ -67,7 +69,6 @@ export default function TaskCard({ task, onEdit, onRefresh, onComplete }: TaskCa
         ${isExiting ? "opacity-0 scale-95 -translate-y-4 pointer-events-none" : "opacity-100 scale-100 translate-y-0"}`}
     >
       <div className="flex justify-between items-start mb-4">
-        {/* Using the safe 'priority' variable here */}
         <span className={`text-[10px] font-bold px-2 py-1 rounded-md border uppercase tracking-wider ${priorityStyles[priority]}`}>
           {priority}
         </span>
