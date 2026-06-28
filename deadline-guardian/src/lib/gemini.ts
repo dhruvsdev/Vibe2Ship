@@ -1,6 +1,7 @@
 "use server"; // Tells Next.js to execute this file safely on the server side only
 
 import OpenAI from "openai";
+// Added "AIReminder" and "AIAnalyticsInsights" to the types import below
 import { 
   Task, 
   PrioritizationResponse, 
@@ -14,17 +15,11 @@ const sleep = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 // You can swap this with any model from openrouter.ai/models
-// e.g., "google/gemini-2.5-flash", "deepseek/deepseek-chat", "meta-llama/llama-3.1-8b-instruct"
 const MODEL_NAME = "openai/gpt-4o-mini";
 
 // Initialize OpenAI client configured for OpenRouter
 const getOpenRouterClient = () => {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  
-  // Safe debugging logs
-  console.log("Checking environment variables...");
-  console.log("Is OPENROUTER_API_KEY defined?:", !!apiKey);
-
   if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY_MISSING");
   }
@@ -33,10 +28,11 @@ const getOpenRouterClient = () => {
     baseURL: "https://openrouter.ai/api/v1",
     defaultHeaders: {
       "HTTP-Referer": "http://localhost:3000",
-      "X-Title": "Deadline Guardian",
+      "X-Title": "NeverLate", // Rebranded header name
     }
   });
 };
+
 // Generic Text Response Helper
 export const getGeminiResponse = async (prompt: string) => {
   const openai = getOpenRouterClient();
@@ -287,15 +283,30 @@ const reminderSchema = {
 };
 
 export const generateRemindersWithAI = async (
-  tasks: Task[]
+  tasks: Task[],
+  localToday: string // Explicitly typed parameter to guarantee compile success
 ): Promise<AIReminder[]> => {
-  const currentDate = new Date().toISOString().split("T")[0];
+  const apiKey = process.env.OPENROUTER_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("API_KEY_MISSING");
+  }
+
+  const openai = new OpenAI({
+    apiKey: apiKey,
+    baseURL: "https://openrouter.ai/api/v1",
+    defaultHeaders: {
+      "HTTP-Referer": "http://localhost:3000",
+      "X-Title": "NeverLate",
+    }
+  });
+
   const prompt = `
     You are an proactive operational assistant. Generate highly specific, context-aware reminders for active tasks.
     Do not output generic alerts like "Task X is due". Instead, customize them based on real factors.
 
     Inputs:
-    - Current Date: ${currentDate}
+    - Current Date: ${localToday} // Matches the client's local calendar date in real-time
     - Tasks list: ${JSON.stringify(tasks)}
 
     Alert Directives:
@@ -351,6 +362,7 @@ export const generateProductivityInsightsWithAI = async (
 
   return await getJSONResponse(prompt, insightsSchema, 0.2) as AIAnalyticsInsights;
 };
+
 // --- AI CHAT COPILOT IMPLEMENTATION ---
 
 export const getAIChatResponse = async (
@@ -367,7 +379,7 @@ export const getAIChatResponse = async (
     baseURL: "https://openrouter.ai/api/v1",
     defaultHeaders: {
       "HTTP-Referer": "http://localhost:3000",
-      "X-Title": "Deadline Guardian",
+      "X-Title": "NeverLate",
     }
   });
 
@@ -375,7 +387,7 @@ export const getAIChatResponse = async (
   const activeTasks = tasks.filter(t => t.status !== "Completed");
 
   const systemPrompt = `
-    You are Guardian AI, a professional operational coach and performance advisor.
+    You are NeverLate AI, a professional operational coach and performance advisor.
     You have direct access to the user's active tasks list and current calendar date.
 
     Current Date: ${currentDate}
@@ -389,7 +401,7 @@ export const getAIChatResponse = async (
 
   try {
     const response = await openai.chat.completions.create({
-      model: MODEL_NAME, // uses "openai/gpt-4o-mini"
+      model: MODEL_NAME,
       messages: [
         { role: "system", content: systemPrompt },
         ...messages
